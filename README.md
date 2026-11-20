@@ -12,6 +12,14 @@ going while you're away (up to 8 hours).
     npm run build    # type-check + production build to dist/
     npm run check    # type-check only
 
+## Deploy
+
+Every push to `main` builds and publishes via GitHub Actions
+(`.github/workflows/deploy.yml`) to <https://ogsapps.github.io/lantern-road/>.
+Nothing is committed to a `gh-pages` branch — the site is served from the
+workflow artifact, so the published build always matches `main`. To re-deploy
+without a code change, run the workflow manually from the Actions tab.
+
 ## Playing
 
 - **Speed**: `Pause`, `1×`, `2×`, `4×`, `8×`, `16×` in the header.
@@ -37,6 +45,8 @@ going while you're away (up to 8 hours).
   No DOM. `BALANCE` holds the per-journey difficulty knobs — see below.
 - `src/sound.ts`: hook your sound engine into the game's events here.
 - `src/main.ts`: UI rendering, save/load, and the frame loop behind the speed controls.
+- `vite.config.ts`: build config. `base: './'` keeps asset URLs relative so the
+  build works from the `/lantern-road/` Pages subpath.
 
 ## Balancing a journey
 
