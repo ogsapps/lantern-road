@@ -77,7 +77,13 @@ export type GameEvents = {
 };
 
 export const TICK_MS = 700;
-const LOG_LIMIT = 80;
+/** Entries the engine keeps; the UI renders all of them. */
+export const LOG_LIMIT = 80;
+/**
+ * Ticks a fork waits before auto-choosing. This is a reading beat: 5 ticks is
+ * 3.5s at 1x, long enough to see the prompt and the options before the story
+ * moves on (and a fraction of that if the player asked for speed).
+ */
 const AUTO_CHOOSE_TICKS = 5;
 const DEFEAT_TICKS = 4;
 /** Offline progress is capped at 8 hours. */
@@ -87,7 +93,7 @@ export const SHOP: Record<ShopKey, { label: string; desc: string; base: number; 
   atk: { label: 'Sharpen blade', desc: '+2 ATK', base: 20, growth: 1.5 },
   def: { label: 'Mend armor', desc: '+1 DEF', base: 20, growth: 1.5 },
   hp: { label: 'Train endurance', desc: '+10 Max HP', base: 15, growth: 1.4 },
-  potion: { label: 'Buy potion', desc: 'Auto-used below 35% HP', base: 10, growth: 1 },
+  potion: { label: 'Buy potion', desc: 'Auto-used below 35% HP', base: 10, growth: 1.15 },
 };
 
 export function xpToNext(level: number): number {
@@ -102,8 +108,51 @@ function pick<T>(list: T[]): T {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+/**
+ * Per-journey difficulty. Every journey multiplies the world by these.
+ *
+ * The old game scaled hp, atk, def and xp by one flat 1.8^journey, while the
+ * hero only managed ~1.4-1.8x per journey (fuelled by the scaled XP): armour
+ * and attacks ran ahead, damage crawled along the 1-per-hit floor, and by
+ * journey 4 the hero was stuck in a death loop — journey 5 alone took two
+ * hours at 4x and thousands of defeats. Nothing could grow fast enough to
+ * make that playable, so the growth was split instead.
+ *
+ * So: HP and XP (which is what makes fights *last*, and what feeds the hero's
+ * levels) grow fastest, while a foe's attack and armour — the two numbers that
+ * decide whether the hero can hurt it and survive it — grow slower, keeping
+ * them in step with hero growth.
+ */
+export const BALANCE = {
+  /** Foe HP: how long a fight lasts. */
+  foeHp: 1.8,
+  /** Foe XP: the hero's main source of levels, so it must track foe HP. */
+  foeXp: 1.8,
+  /** Foe ATK: hero time-to-live. */
+  foeAtk: 1.5,
+  /** Foe DEF: hero time-to-kill. */
+  foeDef: 1.4,
+  /** Gold in the world, and the purse it buys upgrades from. */
+  gold: 1.4,
+  /** Armour can never soak more than this fraction of a hit. */
+  armourCap: 0.7,
+  /**
+   * How much tougher the wanderer gets on finishing a journey.
+   *
+   * Levels gained along the road only cover part of the 1.8x the world grows
+   * by each journey, and the shortfall compounds. This is the other half of
+   * that multiplication, applied to every stat when a beacon is lit — it is
+   * what keeps later journeys the same length instead of longer.
+   */
+  heroJourney: 1.5,
+};
+
 function damage(atk: number, def: number): number {
-  return Math.max(1, Math.round(atk * rand(0.85, 1.15) - def * 0.5));
+  const raw = atk * rand(0.85, 1.15);
+  // Flat defence reduction, capped so a wall of armour can never turn a fight
+  // into an endless 1-damage scratch.
+  const mitigated = raw * (1 - Math.min(BALANCE.armourCap, (def * 0.5) / raw));
+  return Math.max(1, Math.round(mitigated));
 }
 
 const FLAVOR = [
@@ -160,14 +209,29 @@ export class Game {
     return STORY[this.s.node];
   }
 
-  /** Difficulty and reward multiplier for the current journey. */
+  /** Difficulty and reward multiplier for the current journey (foe HP/XP). */
   get scale(): number {
-    return Math.pow(1.8, this.s.journey);
+    return Math.pow(BALANCE.foeHp, this.s.journey);
+  }
+
+  /** Foe attack multiplier: how hard the road hits back. */
+  get atkScale(): number {
+    return Math.pow(BALANCE.foeAtk, this.s.journey);
+  }
+
+  /** Foe armour multiplier: how much of the hero's bite gets through. */
+  get defScale(): number {
+    return Math.pow(BALANCE.foeDef, this.s.journey);
+  }
+
+  /** XP multiplier. Kept with foe HP so the hero keeps gaining levels. */
+  get xpScale(): number {
+    return Math.pow(BALANCE.foeXp, this.s.journey);
   }
 
   /** Gold grows slower than difficulty so the shop can't outpace the road. */
   get goldScale(): number {
-    return Math.pow(1.35, this.s.journey);
+    return Math.pow(BALANCE.gold, this.s.journey);
   }
 
   // ---------- main loop ----------
@@ -209,16 +273,15 @@ export class Game {
 
   private spawn(id: string, boss: boolean): void {
     const def = ENEMIES[id];
-    const k = this.scale;
-    const hp = Math.round(def.hp * k);
+    const hp = Math.round(def.hp * this.scale);
     const foe: Foe = {
       id,
       name: def.name,
       hp,
       maxHp: hp,
-      atk: Math.round(def.atk * k),
-      def: Math.round(def.def * k),
-      xp: Math.round(def.xp * k),
+      atk: Math.round(def.atk * this.atkScale),
+      def: Math.round(def.def * this.defScale),
+      xp: Math.round(def.xp * this.xpScale),
       gold: Math.round(def.gold * this.goldScale * rand(0.7, 1.3)),
       boss,
     };
@@ -336,6 +399,12 @@ export class Game {
     if (!this.s.autoChoose) return;
     if (++this.s.wait < AUTO_CHOOSE_TICKS) return;
     const options = this.node.choices.map((_, i) => i).filter((i) => this.canChoose(this.node.choices[i]));
+    // Nothing is available yet (e.g. a drained purse): wait for the player
+    // instead of spinning on an empty pick forever.
+    if (!options.length) {
+      this.s.wait = AUTO_CHOOSE_TICKS;
+      return;
+    }
     this.choose(pick(options));
   }
 
@@ -358,7 +427,7 @@ export class Game {
   private apply(e: Effect): void {
     const s = this.s;
     const h = s.hero;
-    const k = this.scale;
+    const k = this.xpScale;
     if (e.gold) h.gold = Math.max(0, h.gold + (e.gold > 0 ? Math.round(e.gold * this.goldScale) : e.gold));
     if (e.potions) h.potions = Math.max(0, h.potions + e.potions);
     if (e.atk) h.atk += e.atk;
@@ -375,9 +444,21 @@ export class Game {
       s.journey++;
       s.stats.journeys++;
       s.flags = [];
-      this.log(`Journey ${s.journey + 1} begins. The monsters have grown stronger.`, 'level');
+      this.growHero(BALANCE.heroJourney);
+      this.log(`Journey ${s.journey + 1} begins. The monsters have grown stronger. So have you.`, 'level');
       this.events.emit('journeyComplete', { journey: s.journey });
     }
+  }
+
+  /** Apply a multiplicative boost to the hero's core stats at the same HP fraction. */
+  private growHero(factor: number): void {
+    const h = this.s.hero;
+    const hp = h.maxHp;
+    h.atk = Math.max(1, Math.round(h.atk * factor));
+    h.def = Math.max(1, Math.round(h.def * factor));
+    h.maxHp = Math.max(1, Math.round(h.maxHp * factor));
+    // Keep current HP proportional so the bonus never reads as damage.
+    h.hp = Math.max(1, Math.min(h.maxHp, Math.round((h.hp / hp) * h.maxHp)));
   }
 
   private arrive(id: string, silent = false): void {
@@ -411,8 +492,11 @@ export class Game {
 
   cost(key: ShopKey): number {
     const item = SHOP[key];
-    if (key === 'potion') return Math.round(item.base * this.goldScale);
-    return Math.round(item.base * Math.pow(item.growth, this.s.bought[key]));
+    const repeat = Math.pow(item.growth, this.s.bought[key]);
+    // Supplies are priced against the purse of the current journey so they
+    // can't be stockpiled without limit; upgrades are not, so saving up still
+    // always buys a fixed amount of power.
+    return Math.round(item.base * repeat * (key === 'potion' ? this.goldScale : 1));
   }
 
   buy(key: ShopKey): boolean {
