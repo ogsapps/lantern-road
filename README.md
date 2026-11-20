@@ -17,8 +17,15 @@ going while you're away (up to 8 hours).
 - **Speed**: `Pause`, `1×`, `2×`, `4×`, `8×`, `16×` in the header.
   Keyboard: `Space` pauses/resumes, `0`–`5` pick those buttons left to right.
   The last running speed is remembered between visits.
-- **Auto-choose** picks a fork for you after a short beat, and only ever from
-  the choices you qualify for.
+- **Reading**: the current scene's narrative is pinned under the title, and a
+  fork waits for you indefinitely — the story never runs ahead unless you turn
+  Auto-choose on. Speed changes how fast the road passes, not whether you can
+  read it: only the log underneath streams (a line about every 0.7s at 1x).
+- **The log** always keeps its newest line at the top, but only follows new
+  lines while you are looking at them — scroll back to read and it holds your
+  place instead of shoving the text down another line every tick.
+- **Auto-choose** picks a fork for you after a short beat (5 ticks, ~3.5s at
+  1x), and only ever from the choices you qualify for.
 - Close the tab and come back: the gap is simulated on return (capped at
   8 hours) and summarised in a toast. A hidden tab never ticks, so offline
   progress is never counted twice.

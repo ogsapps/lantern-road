@@ -1,5 +1,15 @@
 import './style.css';
-import { Game, SHOP, TICK_MS, describeReq, newState, xpToNext, type ShopKey, type State } from './game';
+import {
+  Game,
+  LOG_LIMIT,
+  SHOP,
+  TICK_MS,
+  describeReq,
+  newState,
+  xpToNext,
+  type ShopKey,
+  type State,
+} from './game';
 import { connectSound } from './sound';
 import { START_NODE, STORY } from './story';
 
@@ -63,6 +73,7 @@ const els = {
   journey: $('journey'),
   phase: $('phase'),
   title: $('node-title'),
+  sceneText: $('scene-text'),
   foe: $('foe'),
   foeName: $('foe-name'),
   foeHpText: $('foe-hp-text'),
@@ -146,15 +157,25 @@ function renderChoices(): void {
 function renderLog(): void {
   const fresh = game.s.log.filter((e) => e.id > lastLogId);
   if (!fresh.length) return;
-  if (fresh[0].id !== lastLogId + 1) els.log.replaceChildren();
+  // Newest line sits at the top, and the list is refilled whenever the id
+  // stream jumps (page load, offline catch-up).
+  const refill = fresh[0].id !== lastLogId + 1;
+  // Only chase the newest line if the reader is already looking at it. Anyone
+  // who has scrolled back to read must not have the text shoved down another
+  // line every tick — that is what turned the log into a slide show.
+  const following = refill || els.log.scrollTop <= 2;
+  if (refill) els.log.replaceChildren();
+  const before = following ? 0 : els.log.scrollHeight;
   for (const e of fresh) {
     const li = document.createElement('li');
     li.className = `log-${e.kind}`;
     li.textContent = e.text;
     els.log.prepend(li);
   }
-  while (els.log.children.length > 40) els.log.lastElementChild?.remove();
+  const grown = els.log.scrollHeight;
+  while (els.log.children.length > LOG_LIMIT) els.log.lastElementChild?.remove();
   lastLogId = fresh[fresh.length - 1].id;
+  els.log.scrollTop = following ? 0 : els.log.scrollTop + (grown - before);
 }
 
 function render(): void {
@@ -165,6 +186,9 @@ function render(): void {
   els.journey.textContent = `Journey ${s.journey + 1}`;
   els.phase.textContent = PHASE_LABEL[s.phase];
   els.title.textContent = node.title;
+  // Pinned narrative: it must stay readable whatever the speed or however much
+  // the log below is churning.
+  if (els.sceneText.textContent !== node.text) els.sceneText.textContent = node.text;
   setBar('travel-bar', s.step / node.steps);
 
   els.foe.hidden = !s.foe;

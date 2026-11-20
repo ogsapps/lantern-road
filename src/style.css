@@ -95,6 +95,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 
 .eyebrow { margin: 0; color: var(--accent); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; }
 .scene h2 { margin: 2px 0 10px; font-family: var(--story-font); font-size: 1.7rem; font-weight: normal; }
+/* The current node's narrative, pinned under the title. The log below streams
+   by at a line a second; this is the part that is meant to be read. */
+.scene-text {
+  margin: 0 0 12px;
+  max-width: 64ch;
+  font-family: var(--story-font);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
 
 .bar { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
 .bar span { display: block; height: 100%; width: 0; border-radius: inherit; transition: width 0.25s ease; }
@@ -139,7 +149,9 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   overflow-y: auto;
   font-size: 0.92rem;
 }
-.log li { padding: 3px 0; color: var(--muted); }
+.log li { padding: 3px 0; color: var(--muted); transition: color 0.4s ease; }
+/* Newest line is the brightest, and it fades down as it ages rather than
+   snapping off the moment the next line lands on top of it. */
 .log li:first-child { color: var(--ink); }
 .log-story { font-family: var(--story-font); color: var(--ink) !important; font-size: 1rem; }
 .log-loot { color: var(--good) !important; }

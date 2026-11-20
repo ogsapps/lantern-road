@@ -77,8 +77,14 @@ export type GameEvents = {
 };
 
 export const TICK_MS = 700;
-const LOG_LIMIT = 80;
-const AUTO_CHOOSE_TICKS = 3;
+/** Entries the engine keeps; the UI renders all of them. */
+export const LOG_LIMIT = 80;
+/**
+ * Ticks a fork waits before auto-choosing. This is a reading beat: 5 ticks is
+ * 3.5s at 1x, long enough to see the prompt and the options before the story
+ * moves on (and a fraction of that if the player asked for speed).
+ */
+const AUTO_CHOOSE_TICKS = 5;
 const DEFEAT_TICKS = 4;
 /** Offline progress is capped at 8 hours. */
 const MAX_OFFLINE_TICKS = Math.floor((8 * 3600 * 1000) / TICK_MS);
